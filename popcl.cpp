@@ -18,6 +18,11 @@
 using namespace std;
 
 /**
+ *Global constants
+ */
+const string helpMsg = "\n";
+
+/**
  *Prototypes of functions
  */
 void errTerminate(string msg);
