@@ -1,0 +1,22 @@
+# depslib dependency file v1.0
+1510601824 source:/home/mjankech/Storage/Windows/Users/Marek/Documents/VUT/4BIT/ZS/ISA/proj/popcl/popcl.cpp
+	<iostream>
+	<cstdio>
+
+1510601824 
+
+1510612482 source:c:\users\marek\documents\vut\4bit\zs\isa\proj\popcl\popcl.cpp
+	<cstdlib>
+	<cstdio>
+	<iostream>
+
+1510612482 
+
+1510701085 source:/home/mjankech/Storage/Windows/Users/Marek/Documents/VUT/4BIT/ZS/ISA/proj/popcl/popcl.cpp
+	<cstdlib>
+	<cstdio>
+	<cstdbool>
+	<iostream>
+	<sstream>
+	<unistd.h>
+
