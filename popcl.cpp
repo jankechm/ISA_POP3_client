@@ -20,7 +20,9 @@ using namespace std;
 /**
  *Global constants
  */
-const string helpMsg = "\n";
+string helpMsg = "\n"
+  "usage: popcl <server> [-p <port>] [-T|-S [-c <certfile>] [-C <certaddr>]]\n"
+  "             [-d] [-n] -a <auth_file> -o <out_dir>\n";
 
 /**
  *Prototypes of functions
