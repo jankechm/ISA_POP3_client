@@ -10,12 +10,17 @@
 	<cstdio>
 	<iostream>
 
-1510914027 source:/home/mjankech/Storage/Windows/Users/Marek/Documents/VUT/4BIT/ZS/ISA/proj/popcl/popcl.cpp
+1510937782 source:/home/mjankech/Storage/Windows/Users/Marek/Documents/VUT/4BIT/ZS/ISA/proj/popcl/popcl.cpp
 	<cstdlib>
 	<cstdio>
 	<cstdbool>
 	<cstring>
+	<string>
 	<iostream>
 	<sstream>
 	<unistd.h>
+	<getopt.h>
+	<sys/socket.h>
+	<sys/types.h>
+	<sys/stat.h>
 
