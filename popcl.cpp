@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <unistd.h>
+#include <getopt.h>
 
 using namespace std;
 
@@ -35,16 +36,17 @@ void errTerminate(string msg);
  */
 int main(int argc, char **argv)
 {
-    int c;
+    int c, currOptind;
     bool pFlag, TFlag, SFlag, cFlag, CFlag, dFlag, nFlag, aFlag, oFlag;
     string server, port, certFile, certAddr, authFile, outDir;
+    struct option long_ops[] = {
+       {"help", no_argument, NULL, 'h'},
+       {0, 0, 0, 0}
+    };
 
-    //cout << "Hello world!" << endl;
-    if (argc == 2 && strcmp(argv[1], "--help") == 0) {
-      cout << helpMsg;
-      exit(EXIT_SUCCESS);
-    }
-    while ((c = getopt(argc, argv, ":p:TSc:C:dna:o:")) != -1) {
+    do {
+      currOptind = optind;
+      c = getopt_long(argc, argv, ":p:TSc:C:dna:o:", long_ops, NULL);
       switch (c) {
         case 'p':
           pFlag = true;
@@ -78,16 +80,33 @@ int main(int argc, char **argv)
           oFlag = true;
           outDir = optarg;
           break;
+        case 'h':
+          if (argc == 2) {
+            cout << helpMsg;
+            exit(EXIT_SUCCESS);
+          }
+          else {
+            errTerminate("--help or -h has to be entered as the only argument");
+          }
+          break;
         case ':':
           errTerminate(string("option ") + string(1, optopt) + " requires an argument");
           break;
         case '?':
-          errTerminate(string("bad option ") + string(1, optopt));
+          if (optopt) {
+            errTerminate(string("bad option -") + string(1, optopt));
+          }
+          else {
+            errTerminate(string("bad option ") + argv[currOptind]);
+          }
+          break;
+        case -1:
           break;
         default:
           errTerminate("bad input");
       }
-    }
+    } while (c != -1);
+
     return 0;
 }
 
