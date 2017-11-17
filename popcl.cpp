@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstdbool>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <unistd.h>
@@ -20,7 +21,7 @@ using namespace std;
 /**
  *Global constants
  */
-string helpMsg = "\n"
+string helpMsg =
   "usage: popcl <server> [-p <port>] [-T|-S [-c <certfile>] [-C <certaddr>]]\n"
   "             [-d] [-n] -a <auth_file> -o <out_dir>\n";
 
@@ -38,7 +39,11 @@ int main(int argc, char **argv)
     bool pFlag, TFlag, SFlag, cFlag, CFlag, dFlag, nFlag, aFlag, oFlag;
     string server, port, certFile, certAddr, authFile, outDir;
 
-    cout << "Hello world!" << endl;
+    //cout << "Hello world!" << endl;
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) {
+      cout << helpMsg;
+      exit(EXIT_SUCCESS);
+    }
     while ((c = getopt(argc, argv, ":p:TSc:C:dna:o:")) != -1) {
       switch (c) {
         case 'p':
@@ -74,7 +79,13 @@ int main(int argc, char **argv)
           outDir = optarg;
           break;
         case ':':
+          errTerminate(string("option ") + string(1, optopt) + " requires an argument");
           break;
+        case '?':
+          errTerminate(string("bad option ") + string(1, optopt));
+          break;
+        default:
+          errTerminate("bad input");
       }
     }
     return 0;
@@ -84,6 +95,7 @@ int main(int argc, char **argv)
  * Function for terminating the program with an error message
  */
 void errTerminate(string msg) {
-  cerr << "Error: " << msg << "\n";
+  cerr << "Error: " << msg << endl;
+  cout << helpMsg;
   exit(EXIT_FAILURE);
 }
