@@ -17,10 +17,13 @@
 #include <sstream>
 #include <fstream>
 #include <regex>
+#include <map>
 #include <unistd.h>
 #include <getopt.h>
+#include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <netinet/in.h>
 #include <sys/stat.h>
 
 #define LINE_SIZE 2050
@@ -28,19 +31,21 @@
 using namespace std;
 
 /**
- *Global constants
+ *Global variables
  */
 const string usageMsg =
   "usage: popcl <server> [-p <port>] [-T|-S [-c <certfile>] [-C <certaddr>]]\n"
   "             [-d] [-n] -a <auth_file> -o <out_dir>\n";
 const string mandatArgsMsg = "at least, <server>, -a <auth_file>, -o <out_dir>"
-  "must be specified";
+  " must be specified";
 const string pop3_port = "110";
 const string pop3s_port = "995";
+string user = "", pass = "";
 
 /**
  *Prototypes of functions
  */
+void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, string> &oArgs);
 void errTerminate(string msg);
 void handleAuth(string authPath, string &user, string &pass);
 
@@ -49,15 +54,66 @@ void handleAuth(string authPath, string &user, string &pass);
  */
 int main(int argc, char **argv)
 {
-  int c, currOptind;
-  bool pFlag = false, TFlag = false, SFlag = false, cFlag = false,
-    CFlag = false, dFlag = false, nFlag = false, aFlag = false, oFlag = false;
-  string server, port = pop3_port, certFile, certAddr, authFile, outDir,
-    user = "", pass = "";
+  int clientSocket, ecode, bytesrx;
+  map<string, bool> optFlags = {
+    {"p", false}, {"T", false}, {"S", false}, {"c", false}, {"C", false},
+    {"d", false}, {"n", false}, {"a", false}, {"o", false}
+  };
+  map<string, string> optArgs = {
+    {"server", ""}, {"port", pop3_port},  {"certFile", ""}, {"certAddr", ""},
+    {"authFile", ""}, {"outDir", "./"}
+  };
+  char buffer[5000];
+  struct addrinfo hints;
+  struct addrinfo *result;
+  struct stat outDirStat;
+
+  //Handle input options
+  parseArgs(argc, argv, optFlags, optArgs);
+  //Reset data structures
+  memset(&hints, 0, sizeof(struct addrinfo));
+  memset(buffer, 0, sizeof(buffer));
+  //Specify criteria
+  hints.ai_flags = 0;
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = 0;
+
+  if (optFlags["o"]) {
+    if (stat(optArgs["outDir"].c_str(), &outDirStat) != 0 ) {
+      errTerminate(string("can't access output directory ") + optArgs["outDir"]);
+    }
+    if (!(outDirStat.st_mode & S_IFDIR)) {
+      errTerminate(optArgs["outDir"] + " is not a directory");
+    }
+  }
+  else {
+    errTerminate(mandatArgsMsg);
+  }
+  if (optFlags["a"]) {
+    handleAuth(optArgs["authFile"], user, pass);
+  }
+  else {
+    errTerminate(mandatArgsMsg);
+  }
+  if (optFlags["T"]) {
+    if (!optFlags["p"]) {
+      optArgs["port"] = pop3s_port;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Function for parsing input arguments
+ */
+void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, string> &oArgs) {
   struct option long_ops[] = {
      {"help", no_argument, NULL, 'h'},
      {0, 0, 0, 0}
   };
+  int currOptind, c;
 
   //if there is no arg, print usage msg
   if (argc < 2) {
@@ -70,37 +126,38 @@ int main(int argc, char **argv)
     c = getopt_long(argc, argv, ":p:TSc:C:dna:o:", long_ops, NULL);
     switch (c) {
       case 'p':
-        pFlag = true;
-        port = optarg;
+        oFlags["p"] = true;
+        oArgs["port"] = optarg;
         break;
       case 'T':
-        TFlag = true;
+        oFlags["T"] = true;
         break;
       case 'S':
-        SFlag = true;
+        oFlags["S"] = true;
         break;
       case 'c':
-        cFlag = true;
-        certFile = optarg;
+        oFlags["c"] = true;
+        oArgs["certFile"] = optarg;
         break;
       case 'C':
-        CFlag = true;
-        certAddr = optarg;
+        oFlags["C"] = true;
+        oArgs["certAddr"] = optarg;
         break;
       case 'd':
-        dFlag = true;
+        oFlags["d"] = true;
         break;
       case 'n':
-        nFlag = true;
+        oFlags["n"] = true;
         break;
       case 'a':
-        aFlag = true;
-        authFile = optarg;
+        oFlags["a"] = true;
+        oArgs["authFile"] = optarg;
         break;
       case 'o':
-        oFlag = true;
-        outDir = optarg;
+        oFlags["o"] = true;
+        oArgs["outDir"] = optarg;
         break;
+      //handle help
       case 'h':
         if (argc == 2) {
           cout << usageMsg;
@@ -110,9 +167,11 @@ int main(int argc, char **argv)
           errTerminate("--help or -h has to be entered as the only argument");
         }
         break;
+      //handle option without required argument
       case ':':
         errTerminate(string("option ") + string(1, optopt) + " requires an argument");
         break;
+      //handle unrecognized option; have to distinguish between long and short option
       case '?':
         if (optopt) {
           errTerminate(string("bad option -") + string(1, optopt));
@@ -127,40 +186,8 @@ int main(int argc, char **argv)
         errTerminate("bad input");
     }
   } while (c != -1);
-
-  struct stat outDirStat;
-  FILE *fr;
-
-  if (oFlag) {
-    if (stat(outDir.c_str(), &outDirStat) != 0 ) {
-      errTerminate(string("can't access output directory ") + outDir);
-    }
-    if (!(outDirStat.st_mode & S_IFDIR)) {
-      errTerminate(outDir + " is not a directory");
-    }
-  }
-  else {
-    errTerminate(mandatArgsMsg);
-  }
-  if (aFlag) {
-    /*if ((fr = fopen(authFile.c_str(), "r")) == NULL) {
-      errTerminate("can not open authentication file");
-    }
-    fgets(line, LINE_SIZE, fr)*/
-    handleAuth(authFile, user, pass);
-    cout << user << endl;
-    cout << pass << endl;
-  }
-  else {
-    errTerminate(mandatArgsMsg);
-  }
-  if (TFlag) {
-    if (!pFlag) {
-      port = pop3s_port;
-    }
-  }
-
-  return 0;
+  //get hostname or IP address of the server
+  oArgs["server"] = argv[1];
 }
 
 /**
@@ -173,23 +200,25 @@ void errTerminate(string msg) {
 }
 
 /**
- * Function for handling information from authentication file
+ * Function for getting information from authentication file
  */
 void handleAuth(string authPath, string &user, string &pass) {
-  string line_user, line_pass;
   string s, content;
+  regex rgx("^\\s*(username)\\s*=\\s*?(\\S*)\\s*(password)\\s*=\\s*?(\\S*)\\s*$");
+  smatch matches;
 
+  //opening file with fstream
   fstream fs(authPath);
   if (!fs.is_open()) {
     errTerminate("can not open authentication file");
   }
   else {
+    //store whole content in single string  
     while (fs >> s) {
       content += s + " ";
     }
   }
-  regex rgx("^\\s*(username)\\s*=\\s*?(\\S*)\\s*(password)\\s*=\\s*?(\\S*)\\s*$");
-  smatch matches;
+  //try match witch regular expression
   if (regex_match(content, matches, rgx)) {
     /*cout << "Match!" << endl;
     for (int i = 0; i < matches.size(); ++i) {
