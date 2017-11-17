@@ -26,7 +26,7 @@
 #include <netinet/in.h>
 #include <sys/stat.h>
 
-#define LINE_SIZE 2050
+#define BUFSIZE 5000
 
 using namespace std;
 
@@ -63,12 +63,11 @@ int main(int argc, char **argv)
     {"server", ""}, {"port", pop3_port},  {"certFile", ""}, {"certAddr", ""},
     {"authFile", ""}, {"outDir", "./"}
   };
-  char buffer[5000];
-  struct addrinfo hints;
-  struct addrinfo *result;
+  char buffer[BUFSIZE];
+  struct addrinfo hints, *result;
   struct stat outDirStat;
 
-  //Handle input options
+  //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
   //Reset data structures
   memset(&hints, 0, sizeof(struct addrinfo));
@@ -101,7 +100,31 @@ int main(int argc, char **argv)
       optArgs["port"] = pop3s_port;
     }
   }
-
+  //Address translation for socket
+  if ((ecode = (getaddrinfo(optArgs["server"].c_str(), optArgs["port"].c_str(), &hints, &result))) != 0) {
+    //cerr << optArgs["server"] << " " << optArgs["port"] << endl;
+    errTerminate(gai_strerror(ecode));
+  }
+  //Create socket
+  if ((clientSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
+		errTerminate("can't create socket");
+	}
+  //Establish a connection to the server
+  if (connect(clientSocket, result->ai_addr, result->ai_addrlen) == -1) {
+    errTerminate("can't connect to the server");
+  }
+  //Free addrinfo structure
+  freeaddrinfo(result);
+  //Communicate with the server
+  bytesrx = recv(clientSocket, buffer, BUFSIZE, 0);
+  if (bytesrx == -1) {
+      errTerminate("problem in communication with the server");
+  }
+  else {
+    //Terminate string with '\0'
+    buffer[bytesrx] = '\0';
+  }
+  cout << buffer << endl;
   return 0;
 }
 
@@ -120,6 +143,11 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
     cout << usageMsg;
     exit(EXIT_SUCCESS);
   }
+  //get hostname or IP address of the server
+  oArgs["server"] = argv[1];
+  /*for (int i = 0; i < argc; i++) {
+    cerr << i << ": " << argv[i] << endl;
+  }*/
   //Get options in cycle
   do {
     currOptind = optind;
@@ -186,8 +214,9 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
         errTerminate("bad input");
     }
   } while (c != -1);
-  //get hostname or IP address of the server
-  oArgs["server"] = argv[1];
+  /*for (int i = 0; i < argc; i++) {
+    cerr << i << ": " << argv[i] << endl;
+  }*/
 }
 
 /**
@@ -213,7 +242,7 @@ void handleAuth(string authPath, string &user, string &pass) {
     errTerminate("can not open authentication file");
   }
   else {
-    //store whole content in single string  
+    //store whole content in single string
     while (fs >> s) {
       content += s + " ";
     }
@@ -226,6 +255,7 @@ void handleAuth(string authPath, string &user, string &pass) {
     }
     cout << matches[2].str() << endl;
     cout << matches[4].str() << endl;*/
+    //parse user name and password
     user = matches[2].str();
     pass = matches[4].str();
   }

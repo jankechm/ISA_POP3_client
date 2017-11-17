@@ -10,7 +10,7 @@
 	<cstdio>
 	<iostream>
 
-1510949919 source:/home/mjankech/Storage/Windows/Users/Marek/Documents/VUT/4BIT/ZS/ISA/proj/popcl/popcl.cpp
+1510962203 source:/home/mjankech/Storage/Windows/Users/Marek/Documents/VUT/4BIT/ZS/ISA/proj/popcl/popcl.cpp
 	<cstdlib>
 	<cstdio>
 	<cstdbool>
@@ -20,9 +20,12 @@
 	<sstream>
 	<fstream>
 	<regex>
+	<map>
 	<unistd.h>
 	<getopt.h>
+	<netdb.h>
 	<sys/socket.h>
 	<sys/types.h>
+	<netinet/in.h>
 	<sys/stat.h>
 

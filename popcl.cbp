@@ -11,7 +11,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="server -o ./ popcl -a ~/Dokumenty/auth.txt" />
+				<Option parameters="77.75.76.46 -o ./ popcl -a ~/Dokumenty/auth.txt" />
 				<Compiler>
 					<Add option="-g" />
 				</Compiler>
