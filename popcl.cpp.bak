@@ -58,7 +58,7 @@ void handleAuth(string authPath, string &user, string &pass);
  */
 int main(int argc, char **argv)
 {
-  int clientSocket, ecode, bytesrx;
+  int clientSocket, ecode, bytesrx, msgNum;
   map<string, bool> optFlags = {
     {"p", false}, {"T", false}, {"S", false}, {"c", false}, {"C", false},
     {"d", false}, {"n", false}, {"a", false}, {"o", false}
@@ -70,7 +70,9 @@ int main(int argc, char **argv)
   char buffer[BUFSIZE];
   struct addrinfo hints, *result;
   struct stat outDirStat;
-  string msg = "";
+  string msg = "", status = "";
+  stringstream ss;
+  vector<int> msgNums;
   regex ok_rgx("^\\+OK.*?\\r\\n$");
 
   //Handle input arguments
@@ -144,7 +146,7 @@ int main(int argc, char **argv)
     }
     //Regular message downloading
     else {
-      //Send username
+      //Send USER username command
       msg = "USER " + user + "\r\n";
       cout << "C: " << msg;
       if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
@@ -157,14 +159,16 @@ int main(int argc, char **argv)
       }
       buffer[bytesrx] = '\0';
       cout << "S: " << buffer;
-      if (regex_match(buffer, ok_rgx)) {
+      if (strncmp(buffer, "+OK", 3) == 0) {
         cout << "Match!" << endl;
       }
       else {
         cout << "No match!" << endl;
+        msg = "QUIT\r\n";
+        send(clientSocket, msg.c_str(), msg.size(), 0);
         errTerminate(badAnswer);
       }
-      //Send password
+      //Send PASS password command
       msg = "PASS " + pass + "\r\n";
       cout << "C: " << msg;
       if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
@@ -177,13 +181,78 @@ int main(int argc, char **argv)
       }
       buffer[bytesrx] = '\0';
       cout << "S: " << buffer;
-      if (regex_match(buffer, ok_rgx)) {
+      if (strncmp(buffer, "+OK", 3) == 0) {
         cout << "Match!" << endl;
       }
       else {
         cout << "No match!" << endl;
+        msg = "QUIT\r\n";
+        send(clientSocket, msg.c_str(), msg.size(), 0);
         errTerminate(badAnswer);
       }
+      //Send LIST command
+      msg = "LIST \r\n";
+      cout << "C: " << msg;
+      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
+        close(clientSocket);
+        errTerminate(sendProblem);
+      }
+      //Receive response
+      //First line
+      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+        errTerminate(recvProblem);
+      }
+      buffer[bytesrx] = '\0';
+      cout << "S: " << buffer;
+      ss << buffer;
+      ss >> status;
+      if (strncmp(status.c_str(), "+OK", 3) == 0) {
+        cout << "Match!" << endl;
+      }
+      ss >> msgCnt;
+      cout << msgCnt << endl;
+      //Next lines
+      if (msgCnt > 0) {
+        while (1) {
+          if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+            errTerminate(recvProblem);
+          }
+          buffer[bytesrx] = '\0';
+          cout << "S: " << buffer;
+          if (strncmp(buffer, ".\r\n", 3) == 0) {
+            cout << "Hotovo!" << endl;
+            break;
+          }
+          ss << buffer;
+          ss >> msgNum;
+          msgNums.push_back(msgNum);
+        }
+        for (int i = 0; i < msgNums.size(); i++) 
+      }
+      //Send STAT command
+      msg = "STAT \r\n";
+      int msgCnt;
+      cout << "C: " << msg;
+      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
+        close(clientSocket);
+        errTerminate(sendProblem);
+      }
+      //Receive response
+      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+        errTerminate(recvProblem);
+      }
+      buffer[bytesrx] = '\0';
+      cout << "S: " << buffer;
+      ss << buffer;
+      ss >> status;
+      if (strncmp(status.c_str(), "+OK", 3) == 0) {
+        cout << "Match!" << endl;
+      }
+      ss >> msgCnt;
+      cout << msgCnt << endl;
+      //QUIT communication
+      msg = "QUIT\r\n";
+      send(clientSocket, msg.c_str(), msg.size(), 0);
     }
   }
   return 0;
