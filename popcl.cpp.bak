@@ -26,7 +26,7 @@
 #include <sys/stat.h>
 #include <netinet/in.h>
 
-#define BUFSIZE 5000
+#define BUFSIZE 1024
 
 using namespace std;
 
@@ -58,7 +58,7 @@ void handleAuth(string authPath, string &user, string &pass);
  */
 int main(int argc, char **argv)
 {
-  int clientSocket, ecode, bytesrx, msgNum;
+  int clientSocket, ecode, bytesrx, msgNum, msgCnt;
   map<string, bool> optFlags = {
     {"p", false}, {"T", false}, {"S", false}, {"c", false}, {"C", false},
     {"d", false}, {"n", false}, {"a", false}, {"o", false}
@@ -70,10 +70,11 @@ int main(int argc, char **argv)
   char buffer[BUFSIZE];
   struct addrinfo hints, *result;
   struct stat outDirStat;
-  string msg = "", status = "";
+  string msg = "", status = "", msgPart = "", msgContent = "", response = "";
   stringstream ss;
   vector<int> msgNums;
   regex ok_rgx("^\\+OK.*?\\r\\n$");
+  ofstream ofsfile;
 
   //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
@@ -153,7 +154,7 @@ int main(int argc, char **argv)
         close(clientSocket);
         errTerminate(sendProblem);
       }
-      //Receive response
+      //Receive response to USER
       if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
         errTerminate(recvProblem);
       }
@@ -168,6 +169,7 @@ int main(int argc, char **argv)
         send(clientSocket, msg.c_str(), msg.size(), 0);
         errTerminate(badAnswer);
       }
+
       //Send PASS password command
       msg = "PASS " + pass + "\r\n";
       cout << "C: " << msg;
@@ -175,7 +177,7 @@ int main(int argc, char **argv)
         close(clientSocket);
         errTerminate(sendProblem);
       }
-      //Receive response
+      //Receive response to PASS
       if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
         errTerminate(recvProblem);
       }
@@ -183,6 +185,7 @@ int main(int argc, char **argv)
       cout << "S: " << buffer;
       if (strncmp(buffer, "+OK", 3) == 0) {
         cout << "Match!" << endl;
+        memset(buffer, 0, sizeof(buffer));
       }
       else {
         cout << "No match!" << endl;
@@ -190,6 +193,7 @@ int main(int argc, char **argv)
         send(clientSocket, msg.c_str(), msg.size(), 0);
         errTerminate(badAnswer);
       }
+
       //Send LIST command
       msg = "LIST \r\n";
       cout << "C: " << msg;
@@ -197,15 +201,17 @@ int main(int argc, char **argv)
         close(clientSocket);
         errTerminate(sendProblem);
       }
-      //Receive response
+      //Receive response to LIST
       //First line
       if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
         errTerminate(recvProblem);
       }
       buffer[bytesrx] = '\0';
       cout << "S: " << buffer;
-      ss << buffer;
+      response = string(buffer);
+      ss << response;
       ss >> status;
+      memset(buffer, 0, sizeof(buffer));
       if (strncmp(status.c_str(), "+OK", 3) == 0) {
         cout << "Match!" << endl;
       }
@@ -221,36 +227,87 @@ int main(int argc, char **argv)
           cout << "S: " << buffer;
           if (strncmp(buffer, ".\r\n", 3) == 0) {
             cout << "Hotovo!" << endl;
+            memset(buffer, 0, sizeof(buffer));
             break;
           }
-          ss << buffer;
+          ss.str("");
+          ss.clear();
+          response = string(buffer);
+          ss << response;
           ss >> msgNum;
           msgNums.push_back(msgNum);
+          memset(buffer, 0, sizeof(buffer));
         }
-        for (int i = 0; i < msgNums.size(); i++) 
+        for (unsigned int i = 0; i < msgNums.size(); i++) {
+          cout << msgNums[i] << " ";
+        }
+        cout << endl;
+
+        //Send RETR command in a cycle for every message
+        //and download messages
+        for (unsigned int i = 0; i < msgNums.size(); i++) {
+          msg = "RETR " + to_string(msgNums[i]) + "\r\n";
+          cout << "C: " << msg;
+          if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
+            close(clientSocket);
+            errTerminate(sendProblem);
+          }
+          //Receive response to RETR
+          //First line
+          if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+            errTerminate(recvProblem);
+          }
+          buffer[bytesrx] = '\0';
+          cout << "S: " << buffer;
+          response = string(buffer);
+          ss.str("");
+          ss.clear();
+          ss << response;
+          ss >> status;
+          memset(buffer, 0, sizeof(buffer));
+          if (strncmp(status.c_str(), "+OK", 3) == 0) {
+            cout << "Match!" << endl;
+          }
+          else {
+            continue;
+          }
+          //Next lines - whole message
+          while (1) {
+            regex ending_rgx("\\.\\r\\n$");
+            if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+              errTerminate(recvProblem);
+            }
+            buffer[bytesrx] = '\0';
+            msgPart = string(buffer);
+            if (regex_match(msgPart, ending_rgx)) {
+              cout << "Hotovo!" << endl;
+              memset(buffer, 0, sizeof(buffer));
+              msgContent += msgPart.substr(0, msgPart.size()-3);
+              break;
+            }
+            else {
+              cout << endl << "Este nie :(" << endl;
+            }
+            /*ss.str("");
+            ss.clear();
+            ss << buffer;
+            ss >> msgPart;*/
+            msgContent += msgPart;
+            cout << msgPart << endl;
+            memset(buffer, 0, sizeof(buffer));
+          }
+          //string filePath = optArgs["out_dir"] + to_string(i) + ".txt";
+          //ofsfile(filePath.c_str());
+          //ofsfile << msgContent;
+          //write.open(filename.c_str(), ios::out | ios::binary);
+          ofstream ofs("/home/mjankech/Dokumenty/popcl_mails/1.txt", ios::out);
+          ofs << msgContent;
+        }
       }
-      //Send STAT command
-      msg = "STAT \r\n";
-      int msgCnt;
-      cout << "C: " << msg;
-      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
-        close(clientSocket);
-        errTerminate(sendProblem);
+      //Nothing to do
+      else {
+        cout << "Staženo 0 zpráv." << endl;
       }
-      //Receive response
-      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
-        errTerminate(recvProblem);
-      }
-      buffer[bytesrx] = '\0';
-      cout << "S: " << buffer;
-      ss << buffer;
-      ss >> status;
-      if (strncmp(status.c_str(), "+OK", 3) == 0) {
-        cout << "Match!" << endl;
-      }
-      ss >> msgCnt;
-      cout << msgCnt << endl;
-      //QUIT communication
       msg = "QUIT\r\n";
       send(clientSocket, msg.c_str(), msg.size(), 0);
     }
