@@ -23,8 +23,8 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netinet/in.h>
 #include <sys/stat.h>
+#include <netinet/in.h>
 
 #define BUFSIZE 5000
 
@@ -46,6 +46,7 @@ string user = "", pass = "";
  *Prototypes of functions
  */
 void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, string> &oArgs);
+void checkOps (map<string, bool> &oFlags);
 void errTerminate(string msg);
 void handleAuth(string authPath, string &user, string &pass);
 
@@ -69,32 +70,26 @@ int main(int argc, char **argv)
 
   //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
+  //Check for illegal combinations and mandatory options
+  checkOps(optFlags);
   //Reset data structures
   memset(&hints, 0, sizeof(struct addrinfo));
   memset(buffer, 0, sizeof(buffer));
-  //Specify criteria
+  //Specify criteria: TCP, IPv4/IPv6
   hints.ai_flags = 0;
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_protocol = 0;
-
-  if (optFlags["o"]) {
-    if (stat(optArgs["outDir"].c_str(), &outDirStat) != 0 ) {
-      errTerminate(string("can't access output directory ") + optArgs["outDir"]);
-    }
-    if (!(outDirStat.st_mode & S_IFDIR)) {
-      errTerminate(optArgs["outDir"] + " is not a directory");
-    }
+  //Try to access output directory
+  if (stat(optArgs["outDir"].c_str(), &outDirStat) != 0 ) {
+    errTerminate(string("can't access output directory ") + optArgs["outDir"]);
   }
-  else {
-    errTerminate(mandatArgsMsg);
+  if (!(outDirStat.st_mode & S_IFDIR)) {
+    errTerminate(optArgs["outDir"] + " is not a directory");
   }
-  if (optFlags["a"]) {
-    handleAuth(optArgs["authFile"], user, pass);
-  }
-  else {
-    errTerminate(mandatArgsMsg);
-  }
+  //Get user name and password form the authentication file
+  handleAuth(optArgs["authFile"], user, pass);
+  //Determine appropriate port
   if (optFlags["T"]) {
     if (!optFlags["p"]) {
       optArgs["port"] = pop3s_port;
@@ -217,6 +212,23 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
   /*for (int i = 0; i < argc; i++) {
     cerr << i << ": " << argv[i] << endl;
   }*/
+}
+
+/**
+ * Function checks for illegal options combinations and mandatory options
+ */
+void checkOps (map<string, bool> &oFlags) {
+  //Check for illegal combinations
+  if (oFlags["T"] && oFlags["S"]) {
+    errTerminate("only one of the options -T or -S can be specified");
+  }
+  if ((oFlags["c"] || oFlags["C"]) && (!oFlags["T"] && !oFlags["S"])) {
+    errTerminate("-c or -C option must be entered along with -T or -S");
+  }
+  //Check for mandatory options
+  if (!oFlags["o"] || !oFlags["a"]) {
+    errTerminate(mandatArgsMsg);
+  }
 }
 
 /**
