@@ -38,6 +38,9 @@ const string usageMsg =
   "             [-d] [-n] -a <auth_file> -o <out_dir>\n";
 const string mandatArgsMsg = "at least, <server>, -a <auth_file>, -o <out_dir>"
   " must be specified";
+const string badAnswer = "negative or no answer from the server";
+const string recvProblem = "problem with receiving message from the server";
+const string sendProblem = "problem with sending message to the server";
 const string pop3_port = "110";
 const string pop3s_port = "995";
 string user = "", pass = "";
@@ -67,6 +70,8 @@ int main(int argc, char **argv)
   char buffer[BUFSIZE];
   struct addrinfo hints, *result;
   struct stat outDirStat;
+  string msg = "";
+  regex ok_rgx("^\\+OK.*?\\r\\n$");
 
   //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
@@ -75,7 +80,7 @@ int main(int argc, char **argv)
   //Reset data structures
   memset(&hints, 0, sizeof(struct addrinfo));
   memset(buffer, 0, sizeof(buffer));
-  //Specify criteria: TCP, IPv4/IP
+  //Specify criteria: TCP, IPv4/IPv6
   hints.ai_flags = 0;
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
@@ -87,39 +92,100 @@ int main(int argc, char **argv)
   if (!(outDirStat.st_mode & S_IFDIR)) {
     errTerminate(optArgs["outDir"] + " is not a directory");
   }
-  //Get user name and password form the authentication file
+  //Get user name and password from the authentication file
   handleAuth(optArgs["authFile"], user, pass);
   //Determine appropriate port
   if (optFlags["T"]) {
     if (!optFlags["p"]) {
       optArgs["port"] = pop3s_port;
     }
+    //TODO
   }
-  //Address translation for socket
-  if ((ecode = (getaddrinfo(optArgs["server"].c_str(), optArgs["port"].c_str(), &hints, &result))) != 0) {
-    //cerr << optArgs["server"] << " " << optArgs["port"] << endl;
-    errTerminate(gai_strerror(ecode));
-  }
-  //Create socket
-  if ((clientSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
-		errTerminate("can't create socket");
-	}
-  //Establish a connection to the server
-  if (connect(clientSocket, result->ai_addr, result->ai_addrlen) == -1) {
-    errTerminate("can't connect to the server");
-  }
-  //Free addrinfo structure result
-  freeaddrinfo(result);
-  //Communicate with the server
-  bytesrx = recv(clientSocket, buffer, BUFSIZE, 0);
-  if (bytesrx == -1) {
-      errTerminate("problem in communication with the server");
+  else if (optFlags["S"]) {
+    //TODO
   }
   else {
+    //Address translation for socket
+    if ((ecode = (getaddrinfo(optArgs["server"].c_str(), optArgs["port"].c_str(), &hints, &result))) != 0) {
+      //cerr << optArgs["server"] << " " << optArgs["port"] << endl;
+      errTerminate(gai_strerror(ecode));
+    }
+    //Create socket
+    if ((clientSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
+      errTerminate("can't create socket");
+    }
+    //Establish a connection to the server
+    if (connect(clientSocket, result->ai_addr, result->ai_addrlen) == -1) {
+      errTerminate("can't connect to the server");
+    }
+    //Free addrinfo structure result
+    freeaddrinfo(result);
+    //Communicate with the server
+    if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+      errTerminate(recvProblem);
+    }
     //Terminate string with '\0'
     buffer[bytesrx] = '\0';
+    cout << buffer << endl;
+    if (regex_match(buffer, ok_rgx)) {
+      //cout << "Match!" << endl;
+    }
+    else {
+      //cout << "No match!" << endl;
+      errTerminate(badAnswer);
+    }
+    if (optFlags["d"]) {
+      if (optFlags["n"]) {
+        //TODO
+      }
+      else {
+        //TODO
+      }
+    }
+    //Regular message downloading
+    else {
+      //Send username
+      msg = "USER " + user + "\r\n";
+      cout << "C: " << msg;
+      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
+        close(clientSocket);
+        errTerminate(sendProblem);
+      }
+      //Receive response
+      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+        errTerminate(recvProblem);
+      }
+      buffer[bytesrx] = '\0';
+      cout << "S: " << buffer;
+      if (regex_match(buffer, ok_rgx)) {
+        cout << "Match!" << endl;
+      }
+      else {
+        cout << "No match!" << endl;
+        errTerminate(badAnswer);
+      }
+      //Send password
+      msg = "PASS " + pass + "\r\n";
+      cout << "C: " << msg;
+      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
+        close(clientSocket);
+        errTerminate(sendProblem);
+      }
+      //Receive response
+      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+        errTerminate(recvProblem);
+      }
+      buffer[bytesrx] = '\0';
+      cout << "S: " << buffer;
+      if (regex_match(buffer, ok_rgx)) {
+        cout << "Match!" << endl;
+      }
+      else {
+        cout << "No match!" << endl;
+        errTerminate(badAnswer);
+      }
+    }
   }
-  cout << buffer << endl;
   return 0;
 }
 
