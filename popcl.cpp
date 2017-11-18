@@ -58,7 +58,7 @@ void handleAuth(string authPath, string &user, string &pass);
  */
 int main(int argc, char **argv)
 {
-  int clientSocket, ecode, bytesrx, msgNum, msgCnt;
+  int clientSocket, ecode, bytesrx, msgNum, msgCnt, storedCnt = 0;
   map<string, bool> optFlags = {
     {"p", false}, {"T", false}, {"S", false}, {"c", false}, {"C", false},
     {"d", false}, {"n", false}, {"a", false}, {"o", false}
@@ -74,7 +74,6 @@ int main(int argc, char **argv)
   stringstream ss;
   vector<int> msgNums;
   regex ok_rgx("^\\+OK.*?\r\n$");
-  ofstream ofsfile;
 
   //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
@@ -124,7 +123,7 @@ int main(int argc, char **argv)
     //Free addrinfo structure result
     freeaddrinfo(result);
     //Communicate with the server
-    if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+    if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
       errTerminate(recvProblem);
     }
     //Terminate string with '\0'
@@ -155,7 +154,7 @@ int main(int argc, char **argv)
         errTerminate(sendProblem);
       }
       //Receive response to USER
-      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+      if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
         errTerminate(recvProblem);
       }
       buffer[bytesrx] = '\0';
@@ -178,7 +177,7 @@ int main(int argc, char **argv)
         errTerminate(sendProblem);
       }
       //Receive response to PASS
-      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+      if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
         errTerminate(recvProblem);
       }
       buffer[bytesrx] = '\0';
@@ -203,7 +202,7 @@ int main(int argc, char **argv)
       }
       //Receive response to LIST
       //First line
-      if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+      if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
         errTerminate(recvProblem);
       }
       buffer[bytesrx] = '\0';
@@ -220,7 +219,7 @@ int main(int argc, char **argv)
       //Next lines
       if (msgCnt > 0) {
         while (1) {
-          if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+          if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
             errTerminate(recvProblem);
           }
           buffer[bytesrx] = '\0';
@@ -254,7 +253,7 @@ int main(int argc, char **argv)
           }
           //Receive response to RETR
           //First line
-          if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+          if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
             errTerminate(recvProblem);
           }
           buffer[bytesrx] = '\0';
@@ -265,46 +264,45 @@ int main(int argc, char **argv)
           ss << response;
           ss >> status;
           memset(buffer, 0, sizeof(buffer));
-          if (strncmp(status.c_str(), "+OK", 3) == 0) {
-            cout << "Match!" << endl;
-          }
-          else {
+          if (!(strncmp(status.c_str(), "+OK", 3) == 0)) {
             continue;
           }
           //Next lines - whole message
           while (1) {
             regex ending_rgx("\r\n\\.\r\n$");
-            if ((bytesrx = recv(clientSocket, buffer, BUFSIZE, 0)) == -1) {
+            if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
               errTerminate(recvProblem);
             }
             buffer[bytesrx] = '\0';
             msgPart = string(buffer);
             if (regex_search(msgPart, ending_rgx)) {
-              cout << "Hotovo!" << endl;
+              cout << "Sprava " << msgNums[i] << " kompletne stiahnuta!" << endl;
               memset(buffer, 0, sizeof(buffer));
               msgContent += msgPart.substr(0, msgPart.size()-3);
+              storedCnt++;
               break;
             }
-            else {
-              cout << endl << "Este nie :(" << endl;
-            }
-            /*ss.str("");
-            ss.clear();
-            ss << buffer;
-            ss >> msgPart;*/
             msgContent += msgPart;
-            cout << msgPart << endl;
             memset(buffer, 0, sizeof(buffer));
           }
-          //string filePath = optArgs["out_dir"] + to_string(i) + ".txt";
-          //ofsfile(filePath.c_str());
-          //ofsfile << msgContent;
-          //write.open(filename.c_str(), ios::out | ios::binary);
-          ofstream ofs("/home/mjankech/Dokumenty/popcl_mails/1.txt", ios::out);
-          ofs << msgContent;
+          string filePath = optArgs["outDir"] + to_string(msgNums[i]) + ".txt";
+          ofstream ofsfile(filePath, ios::out);
+          if(!ofsfile.is_open()) {
+            errTerminate("can not open output file to store message");
+          }
+          ofsfile << msgContent;
+        }
+        if (storedCnt == 0 || storedCnt >= 5) {
+          cout << "Staženo " << storedCnt << " zpráv." << endl;
+        }
+        else if (storedCnt == 1) {
+          cout << "Stažena 1 zpráva." << endl;
+        }
+        else {
+          cout << "Staženy " << storedCnt << " zprávy." << endl;
         }
       }
-      //Nothing to do
+      //Nothing to download
       else {
         cout << "Staženo 0 zpráv." << endl;
       }
