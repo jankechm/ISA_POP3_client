@@ -74,6 +74,9 @@ int main(int argc, char **argv)
   stringstream ss;
   vector<int> msgNums;
   regex ok_rgx("^\\+OK.*?\r\n$");
+  regex list_rgx("\\+OK (\\d*) \\d*\r\n(\\d* \\d*\r\n)*");
+  regex ending_rgx("\r\n\\.\r\n$");
+  smatch matches;
 
   //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
@@ -202,20 +205,43 @@ int main(int argc, char **argv)
       }
       //Receive response to LIST
       //First line
-      if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
-        errTerminate(recvProblem);
+      msgContent = "";
+      int j1,j2,j3;
+      j1 = j2 = j3 = 0;
+      while (1) {
+        cout << "j1 je " << j1 << endl;
+        bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0);
+        if (bytesrx == -1) {
+          errTerminate(recvProblem);
+        }
+        cout << "j2 je " << j2 << endl;
+
+        cout << "j3 je " << j3 << endl;
+        buffer[bytesrx] = '\0';
+        //cout << "S: '" << buffer << "'" << endl;
+
+        response = string(buffer);
+
+        msgContent += response;
+        if (regex_search(msgContent, ending_rgx)) {
+          break;
+        }
+        /*ss << response;
+        ss >> status;
+        memset(buffer, 0, sizeof(buffer));*/
+        j1++;j2++;j3++;
       }
-      buffer[bytesrx] = '\0';
-      cout << "S: " << buffer;
-      response = string(buffer);
-      ss << response;
-      ss >> status;
-      memset(buffer, 0, sizeof(buffer));
-      if (strncmp(status.c_str(), "+OK", 3) == 0) {
-        cout << "Match!" << endl;
+      if (strncmp(msgContent.c_str(), "+OK", 3) == 0) {
+        cout << "Match +OK" << endl;
       }
-      ss >> msgCnt;
-      cout << msgCnt << endl;
+      /*ss >> msgCnt;
+      cout << "Msg counter: " << msgCnt << endl;*/
+      if (regex_search(msgContent, matches, list_rgx)) {
+        for (int i = 0; i < matches.size(); ++i) {
+          cout << i << " '" << matches[i].str() << "'" << endl;
+        }
+      }
+      msgCnt = 0;
       //Next lines
       if (msgCnt > 0) {
         while (1) {
@@ -223,7 +249,7 @@ int main(int argc, char **argv)
             errTerminate(recvProblem);
           }
           buffer[bytesrx] = '\0';
-          cout << "S: " << buffer;
+          cout << "S: '" << buffer << "'" << endl;
           if (strncmp(buffer, ".\r\n", 3) == 0) {
             cout << "Hotovo!" << endl;
             memset(buffer, 0, sizeof(buffer));
@@ -253,6 +279,7 @@ int main(int argc, char **argv)
           }
           //Receive response to RETR
           //First line
+          msgContent = "";
           if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
             errTerminate(recvProblem);
           }
@@ -269,7 +296,6 @@ int main(int argc, char **argv)
           }
           //Next lines - whole message
           while (1) {
-            regex ending_rgx("\r\n\\.\r\n$");
             if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
               errTerminate(recvProblem);
             }
