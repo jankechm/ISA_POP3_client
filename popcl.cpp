@@ -260,7 +260,6 @@ int main(int argc, char **argv)
             ss.clear();
             ss << response;
             ss >> status;
-            memset(buffer, 0, sizeof(buffer));
             if (!(strncmp(status.c_str(), "+OK", 3) == 0)) {
               continue;
             }
@@ -273,13 +272,11 @@ int main(int argc, char **argv)
               msgPart = string(buffer);
               if (regex_search(msgPart, ending_rgx)) {
                 cout << "Sprava " << msgNums[i] << " kompletne stiahnuta!" << endl;
-                memset(buffer, 0, sizeof(buffer));
                 msgContent += msgPart.substr(0, msgPart.size()-3);
                 storedCnt++;
                 break;
               }
               msgContent += msgPart;
-              memset(buffer, 0, sizeof(buffer));
             }
             string filePath = optArgs["outDir"] + to_string(msgNums[i]) + ".txt";
             ofstream ofsfile(filePath, ios::out);
