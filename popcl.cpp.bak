@@ -41,8 +41,14 @@ const string mandatArgsMsg = "at least, <server>, -a <auth_file>, -o <out_dir>"
 const string badAnswer = "negative or no answer from the server";
 const string recvProblem = "problem with receiving message from the server";
 const string sendProblem = "problem with sending message to the server";
+const string fileOpenProblem = "can not open output file to store message";
 const string pop3_port = "110";
 const string pop3s_port = "995";
+const regex ok_rgx("^\\+OK.*?\r\n$");
+const regex list_rgx(R"~(\+OK (\d*) \d*\r\n((\d* \d*\r\n)*))~");
+const regex list_msgs_rgx(R"~(\d* \d*\r\n)~");
+const regex ending_rgx("\r\n\\.\r\n$");
+const regex split_msg_ids_rgx(R"~( \d*\r\n)~");
 string user = "", pass = "";
 
 /**
@@ -52,13 +58,19 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
 void checkOps (map<string, bool> &oFlags);
 void errTerminate(string msg);
 void handleAuth(string authPath, string &user, string &pass);
+void establishCom(int &clientSocket, int &bytesrx, char buffer[], map<string, string> &oArgs);
+void authentize(int &clientSocket, int &bytesrx, char *buffer);
+void listMsgNums(int &clientSocket, int &bytesrx, char *buffer, int &msgCnt, vector<int> &msgNums);
+void parseMsgNums(int &clientSocket, int &msgCnt, string &msgContent, vector<int> &msgNums);
+void storeIMF(string outDir, string msgNum, string msgContent);
+bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, string outDir);
 
 /**
  *Main
  */
 int main(int argc, char **argv)
 {
-  int clientSocket, ecode, bytesrx, msgNum, msgCnt, storedCnt = 0;
+  int clientSocket, bytesrx, msgCnt, storedCnt = 0;
   map<string, bool> optFlags = {
     {"p", false}, {"T", false}, {"S", false}, {"c", false}, {"C", false},
     {"d", false}, {"n", false}, {"a", false}, {"o", false}
@@ -68,30 +80,15 @@ int main(int argc, char **argv)
     {"authFile", ""}, {"outDir", "./"}
   };
   char buffer[BUFSIZE];
-  struct addrinfo hints, *result;
   struct stat outDirStat;
-  string msg = "", status = "", msgPart = "", msgContent = "", response = "";
-  stringstream ss;
+  string msg = "";//, status = "", msgPart = "", msgContent = "", response = "";
+  //stringstream ss;
   vector<int> msgNums;
-  regex ok_rgx("^\\+OK.*?\r\n$");
-  regex list_rgx(R"~(\+OK (\d*) \d*\r\n((\d* \d*\r\n)*))~");
-  regex list_msgs_rgx(R"~(\d* \d*\r\n)~");
-  regex ending_rgx("\r\n\\.\r\n$");
-  regex split_msg_ids_rgx(R"~( \d*\r\n)~");
-  smatch matches;
 
   //Handle input arguments
   parseArgs(argc, argv, optFlags, optArgs);
   //Check for illegal combinations and mandatory options
   checkOps(optFlags);
-  //Reset data structures
-  memset(&hints, 0, sizeof(struct addrinfo));
-  memset(buffer, 0, sizeof(buffer));
-  //Specify criteria: TCP, IPv4/IPv6
-  hints.ai_flags = 0;
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_protocol = 0;
   //Try to access output directory
   if (stat(optArgs["outDir"].c_str(), &outDirStat) != 0 ) {
     errTerminate(string("can't access output directory ") + optArgs["outDir"]);
@@ -112,35 +109,8 @@ int main(int argc, char **argv)
     //TODO
   }
   else {
-    //Address translation for socket
-    if ((ecode = (getaddrinfo(optArgs["server"].c_str(), optArgs["port"].c_str(), &hints, &result))) != 0) {
-      //cerr << optArgs["server"] << " " << optArgs["port"] << endl;
-      errTerminate(gai_strerror(ecode));
-    }
-    //Create socket
-    if ((clientSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
-      errTerminate("can't create socket");
-    }
-    //Establish a connection to the server
-    if (connect(clientSocket, result->ai_addr, result->ai_addrlen) == -1) {
-      errTerminate("can't connect to the server");
-    }
-    //Free addrinfo structure result
-    freeaddrinfo(result);
-    //Communicate with the server
-    if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
-      errTerminate(recvProblem);
-    }
-    //Terminate string with '\0'
-    buffer[bytesrx] = '\0';
-    cout << buffer << endl;
-    if (regex_match(buffer, ok_rgx)) {
-      //cout << "Match!" << endl;
-    }
-    else {
-      //cout << "No match!" << endl;
-      errTerminate(badAnswer);
-    }
+    //Regular communication
+    establishCom(clientSocket, bytesrx, buffer, optArgs);
     if (optFlags["d"]) {
       if (optFlags["n"]) {
         //TODO
@@ -151,160 +121,37 @@ int main(int argc, char **argv)
     }
     //Regular message downloading
     else {
-      //Send USER username command
-      msg = "USER " + user + "\r\n";
-      cout << "C: " << msg;
-      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
-        close(clientSocket);
-        errTerminate(sendProblem);
-      }
-      //Receive response to USER
-      if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
-        errTerminate(recvProblem);
-      }
-      buffer[bytesrx] = '\0';
-      cout << "S: " << buffer;
-      if (strncmp(buffer, "+OK", 3) != 0) {
-        cout << "No match!" << endl;
-        msg = "QUIT\r\n";
-        send(clientSocket, msg.c_str(), msg.size(), 0);
-        errTerminate(badAnswer);
-      }
-
-      //Send PASS password command
-      msg = "PASS " + pass + "\r\n";
-      cout << "C: " << msg;
-      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
-        close(clientSocket);
-        errTerminate(sendProblem);
-      }
-      //Receive response to PASS
-      if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
-        errTerminate(recvProblem);
-      }
-      buffer[bytesrx] = '\0';
-      cout << "S: " << buffer;
-      if (strncmp(buffer, "+OK", 3) != 0) {
-        cout << "No match!" << endl;
-        msg = "QUIT\r\n";
-        send(clientSocket, msg.c_str(), msg.size(), 0);
-        errTerminate(badAnswer);
-      }
-
+      //Send USER and PASS cmd
+      authentize(clientSocket, bytesrx, buffer);
       //Send LIST command
-      msg = "LIST \r\n";
-      cout << "C: " << msg;
-      if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
-        close(clientSocket);
-        errTerminate(sendProblem);
-      }
-      //Receive response to LIST
-      msgContent = "";
-      while (1) {
-        bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0);
-        if (bytesrx == -1) {
-          errTerminate(recvProblem);
-        }
-        buffer[bytesrx] = '\0';
-        response = string(buffer);
-        msgContent += response;
-        if (regex_search(msgContent, ending_rgx)) {
-          break;
-        }
-      }
-      //Parse response to LIST
-      cout << "S: " << msgContent;
-      if (regex_search(msgContent, matches, list_rgx)) {
-        /*for (unsigned int i = 0; i < matches.size(); i++) {
-          cout << i << " '" << matches[i].str() << "'" << endl;
-        }*/
-        msgCnt = stoi(matches[1].str());
-        cout << "msgCnt: " << msgCnt << endl;
-        //If there are some messages, get their numbers
-        if (msgCnt > 0) {
-          string msgLines = matches[2].str(), msgLine, msgId;
-          cout << "msgLines: " << endl << msgLines << endl;
-          ss.str("");
-          ss.clear();
-          ss << msgLines;
-          for (int k = 0; k < msgCnt; k++) {
-            ss >> msgNum;
-            msgNums.push_back(msgNum);
-            ss >> msgNum;
-          }
-          cout << "msgNums: '";
-          for (unsigned int i = 0; i < msgNums.size(); i++) {
-            cout << msgNums[i] << " ";
-          }
-          cout << "'" << endl;
-
-          //Send RETR command in a cycle for every message
-          //and download messages
-          for (unsigned int i = 0; i < msgNums.size(); i++) {
-            msg = "RETR " + to_string(msgNums[i]) + "\r\n";
-            cout << "C: " << msg;
-            if ((send(clientSocket, msg.c_str(), msg.size(), 0)) == -1) {
-              close(clientSocket);
-              errTerminate(sendProblem);
-            }
-            //Receive response to RETR
-            //First line
-            msgContent = "";
-            if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
-              errTerminate(recvProblem);
-            }
-            buffer[bytesrx] = '\0';
-            cout << "S: " << buffer;
-            response = string(buffer);
-            ss.str("");
-            ss.clear();
-            ss << response;
-            ss >> status;
-            memset(buffer, 0, sizeof(buffer));
-            if (!(strncmp(status.c_str(), "+OK", 3) == 0)) {
-              continue;
-            }
-            //Next lines - whole message
-            while (1) {
-              if ((bytesrx = recv(clientSocket, buffer, sizeof(buffer)-1, 0)) == -1) {
-                errTerminate(recvProblem);
-              }
-              buffer[bytesrx] = '\0';
-              msgPart = string(buffer);
-              if (regex_search(msgPart, ending_rgx)) {
-                cout << "Sprava " << msgNums[i] << " kompletne stiahnuta!" << endl;
-                memset(buffer, 0, sizeof(buffer));
-                msgContent += msgPart.substr(0, msgPart.size()-3);
-                storedCnt++;
-                break;
-              }
-              msgContent += msgPart;
-              memset(buffer, 0, sizeof(buffer));
-            }
-            string filePath = optArgs["outDir"] + to_string(msgNums[i]) + ".txt";
-            ofstream ofsfile(filePath, ios::out);
-            if(!ofsfile.is_open()) {
-              errTerminate("can not open output file to store message");
-            }
-            ofsfile << msgContent;
-          }
-          if (storedCnt == 0 || storedCnt >= 5) {
-            cout << "Staženo " << storedCnt << " zpráv." << endl;
-          }
-          else if (storedCnt == 1) {
-            cout << "Stažena 1 zpráva." << endl;
-          }
-          else {
-            cout << "Staženy " << storedCnt << " zprávy." << endl;
+      listMsgNums(clientSocket, bytesrx, buffer, msgCnt, msgNums);
+      //If there are some messages, get their numbers
+      if (msgCnt > 0) {
+        //Send RETR command in a cycle for every message
+        //and download messages
+        storedCnt = 0;
+        for (unsigned int i = 0; i < msgNums.size(); i++) {
+          if (retrieveMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]), optArgs["outDir"])) {
+            storedCnt++;
           }
         }
-        //Nothing to download
+        if (storedCnt == 0 || storedCnt >= 5) {
+          cout << "Staženo " << storedCnt << " zpráv." << endl;
+        }
+        else if (storedCnt == 1) {
+          cout << "Stažena 1 zpráva." << endl;
+        }
         else {
-          cout << "Staženo 0 zpráv." << endl;
+          cout << "Staženy " << storedCnt << " zprávy." << endl;
         }
-        msg = "QUIT\r\n";
-        send(clientSocket, msg.c_str(), msg.size(), 0);
-      } //End response to list match +OK
+      }
+      //Nothing to download
+      else {
+        cout << "Staženo 0 zpráv." << endl;
+      }
+      //Send QUIT command
+      msg = "QUIT\r\n";
+      send(clientSocket, msg.c_str(), msg.size(), 0);
     } //End regular msg dowload
   } //End without encyption
   return 0;
@@ -320,16 +167,13 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
   };
   int currOptind, c;
 
-  //if there is no arg, print usage msg
+  //If there is no arg, print usage msg
   if (argc < 2) {
     cout << usageMsg;
     exit(EXIT_SUCCESS);
   }
-  //get hostname or IP address of the server
+  //Get hostname or IP address of the server
   oArgs["server"] = argv[1];
-  /*for (int i = 0; i < argc; i++) {
-    cerr << i << ": " << argv[i] << endl;
-  }*/
   //Get options in cycle
   do {
     currOptind = optind;
@@ -367,7 +211,7 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
         oFlags["o"] = true;
         oArgs["outDir"] = optarg;
         break;
-      //handle help
+      //Handle help
       case 'h':
         if (argc == 2) {
           cout << usageMsg;
@@ -377,11 +221,11 @@ void parseArgs(int argc, char **argv, map<string, bool> &oFlags, map<string, str
           errTerminate("--help or -h has to be entered as the only argument");
         }
         break;
-      //handle option without required argument
+      //Handle option without required argument
       case ':':
         errTerminate(string("option ") + string(1, optopt) + " requires an argument");
         break;
-      //handle unrecognized option; have to distinguish between long and short option
+      //Handle unrecognized option; have to distinguish between long and short option
       case '?':
         if (optopt) {
           errTerminate(string("bad option -") + string(1, optopt));
@@ -432,18 +276,18 @@ void handleAuth(string authPath, string &user, string &pass) {
   regex rgx("^\\s*(username)\\s*=\\s*?(\\S*)\\s*(password)\\s*=\\s*?(\\S*)\\s*$");
   smatch matches;
 
-  //opening file with fstream
+  //Opening file with fstream
   fstream fs(authPath);
   if (!fs.is_open()) {
     errTerminate("can not open authentication file");
   }
   else {
-    //store whole content in single string
+    //Store whole content in single string
     while (fs >> s) {
       content += s + " ";
     }
   }
-  //try match witch regular expression
+  //Try match witch regular expression
   if (regex_match(content, matches, rgx)) {
     /*cout << "Match!" << endl;
     for (int i = 0; i < matches.size(); ++i) {
@@ -458,4 +302,230 @@ void handleAuth(string authPath, string &user, string &pass) {
   else {
     errTerminate("the content of the authentication file is in bad format");
   }
+}
+
+/**
+ * Function for establishing communication with the server
+ */
+void establishCom(int &clientSocket, int &bytesrx, char *buffer, map<string, string> &oArgs) {
+  struct addrinfo hints, *result;
+  int ecode;
+
+  //Reset data structures
+  memset(&hints, 0, sizeof(struct addrinfo));
+  memset(buffer, 0, BUFSIZE);
+  //Specify criteria: TCP, IPv4/IPv6
+  hints.ai_flags = 0;
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = 0;
+
+  //Address translation for socket
+  if ((ecode = (getaddrinfo(oArgs["server"].c_str(), oArgs["port"].c_str(), &hints, &result))) != 0) {
+    //cerr << oArgs["server"] << " " << oArgs["port"] << endl;
+    errTerminate(gai_strerror(ecode));
+  }
+  //Create socket
+  if ((clientSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) == -1) {
+    errTerminate("can't create socket");
+  }
+  //Establish a connection to the server
+  if (connect(clientSocket, result->ai_addr, result->ai_addrlen) == -1) {
+    errTerminate("can't connect to the server");
+  }
+  //Free addrinfo structure result
+  freeaddrinfo(result);
+  //Communicate with the server
+  if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
+    errTerminate(recvProblem);
+  }
+  //Check for response
+  buffer[bytesrx] = '\0';
+  cout << buffer << endl;
+  if (!regex_match(buffer, ok_rgx)) {
+    errTerminate(badAnswer);
+  }
+}
+
+/**
+ * Function for authentication to the server
+ */
+void authentize(int &clientSocket, int &bytesrx, char *buffer) {
+  string msgSend = "";
+
+  //Send USER username command
+  msgSend = "USER " + user + "\r\n";
+  cout << "C: " << msgSend;
+  if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
+    close(clientSocket);
+    errTerminate(sendProblem);
+  }
+  //Receive response to USER
+  if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
+    errTerminate(recvProblem);
+  }
+  buffer[bytesrx] = '\0';
+  cout << "S: " << buffer;
+  if (strncmp(buffer, "+OK", 3) != 0) {
+    cout << "No match!" << endl;
+    msgSend = "QUIT\r\n";
+    send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
+    errTerminate(badAnswer);
+  }
+
+  //Send PASS password command
+  msgSend = "PASS " + pass + "\r\n";
+  cout << "C: " << msgSend;
+  if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
+    close(clientSocket);
+    errTerminate(sendProblem);
+  }
+  //Receive response to PASS
+  if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
+    errTerminate(recvProblem);
+  }
+  buffer[bytesrx] = '\0';
+  cout << "S: " << buffer;
+  if (strncmp(buffer, "+OK", 3) != 0) {
+    cout << "No match!" << endl;
+    msgSend = "QUIT\r\n";
+    send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
+    errTerminate(badAnswer);
+  }
+}
+
+/**
+ * Function for listing messages numbers from the server
+ */
+void listMsgNums(int &clientSocket, int &bytesrx, char *buffer, int &msgCnt, vector<int> &msgNums) {
+  string msgSend = "", msgContent = "", response = "";
+
+  //Send LIST command
+  msgSend = "LIST \r\n";
+  cout << "C: " << msgSend;
+  if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
+    close(clientSocket);
+    errTerminate(sendProblem);
+  }
+  //Receive response to LIST
+  while (1) {
+    bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0);
+    if (bytesrx == -1) {
+      errTerminate(recvProblem);
+    }
+    buffer[bytesrx] = '\0';
+    response = string(buffer);
+    msgContent += response;
+    if (regex_search(msgContent, ending_rgx)) {
+      break;
+    }
+  }
+  cout << "S: " << msgContent;
+  //Parse answer
+  parseMsgNums(clientSocket, msgCnt, msgContent, msgNums);
+}
+
+/**
+ * Function for parsing messages numbers
+ */
+void parseMsgNums(int &clientSocket, int &msgCnt, string &msgContent, vector<int> &msgNums) {
+  int msgNum;
+  smatch matches;
+  string msgLines = "", msgLine = "", msgSend = "";
+  stringstream ss;
+
+  //Check if postive response
+  if (regex_search(msgContent, matches, list_rgx)) {
+    /*for (unsigned int i = 0; i < matches.size(); i++) {
+      cout << i << " '" << matches[i].str() << "'" << endl;
+    }*/
+    msgCnt = stoi(matches[1].str());
+    cout << "msgCnt: " << msgCnt << endl;
+    if (msgCnt > 0) {
+      msgLines = matches[2].str();
+      cout << "msgLines: " << endl << msgLines << endl;
+      ss << msgLines;
+      for (int i = 0; i < msgCnt; i++) {
+        ss >> msgNum;
+        msgNums.push_back(msgNum);
+        ss >> msgNum;
+      }
+      cout << "msgNums: '";
+      for (unsigned int i = 0; i < msgNums.size(); i++) {
+        cout << msgNums[i] << " ";
+      }
+      cout << "'" << endl;
+    }
+  }
+  //If no postive answer, QUIT communication
+  else {
+    cout << "No match!" << endl;
+    msgSend = "QUIT\r\n";
+    send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
+    errTerminate(badAnswer);
+  }
+}
+
+/**
+ * Function for downloading a message from the server
+ */
+bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, string outDir) {
+  string msgSend = "", msgContent = "", msgPart = "", response = "", status = "";
+  stringstream ss;
+
+  msgSend = "RETR " + msgNum + "\r\n";
+  cout << "C: " << msgSend;
+  if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
+    close(clientSocket);
+    errTerminate(sendProblem);
+  }
+  //Receive response to RETR
+  //First line
+  if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
+    errTerminate(recvProblem);
+  }
+  buffer[bytesrx] = '\0';
+  cout << "S: " << buffer;
+  response = string(buffer);
+  ss << response;
+  ss >> status;
+  if (!(strncmp(status.c_str(), "+OK", 3) == 0)) {
+    return false;
+  }
+  //Next lines - whole message
+  while (1) {
+    if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
+      errTerminate(recvProblem);
+    }
+    buffer[bytesrx] = '\0';
+    msgPart = string(buffer);
+    if (regex_search(msgPart, ending_rgx)) {
+      cout << "Sprava " << msgNum << " kompletne stiahnuta!" << endl;
+      msgContent += msgPart.substr(0, msgPart.size()-3);
+      break;
+    }
+    msgContent += msgPart;
+  }
+  //Store IMF message in output file
+  storeIMF(outDir, msgNum, msgContent);
+  return true;
+}
+
+/**
+ * Function for storing IMF message in output file
+ */
+void storeIMF(string outDir, string msgNum, string msgContent) {
+  string filePath;
+
+  if (outDir.back() == '/') {
+    filePath = outDir + msgNum + ".txt";
+  }
+  else {
+    filePath = outDir + "/" + msgNum + ".txt";
+  }
+  ofstream ofsfile(filePath, ios::out);
+  if(!ofsfile.is_open()) {
+    errTerminate(fileOpenProblem);
+  }
+  ofsfile << msgContent;
 }
