@@ -531,7 +531,7 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
     }
     msgContent += msgPart;
   }
-  
+
   //Store IMF message in output file
   storeIMF(outDir, msgNum, msgContent);
   return true;

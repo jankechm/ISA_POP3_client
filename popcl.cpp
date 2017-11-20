@@ -531,7 +531,8 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
     }
     msgContent += msgPart;
   }
-
+  //Strip off first line;
+  msgContent.erase(0, msgContent.find("\n") + 1);
   //Store IMF message in output file
   storeIMF(outDir, msgNum, msgContent);
   return true;
