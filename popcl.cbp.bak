@@ -11,7 +11,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="pop3.seznam.cz -o ~/Dokumenty/popcl_mails/ -a ~/Dokumenty/auth.txt -d" />
+				<Option parameters="pop3.seznam.cz -o ~/Dokumenty/popcl_mails/ -a ~/Dokumenty/auth.txt" />
 				<Compiler>
 					<Add option="-g" />
 				</Compiler>

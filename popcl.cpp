@@ -111,15 +111,7 @@ int main(int argc, char **argv)
   else {
     //Regular communication
     establishCom(clientSocket, bytesrx, buffer, optArgs);
-    if (optFlags["d"]) {
-      if (optFlags["n"]) {
-        //TODO
-      }
-      else {
-        //TODO
-      }
-    }
-    //Send USER and PASS cmd
+    //Send USER and PASS commands
     authentize(clientSocket, bytesrx, buffer);
     //Send LIST command
     listMsgNums(clientSocket, bytesrx, buffer, msgCnt, msgNums);
@@ -131,6 +123,7 @@ int main(int argc, char **argv)
         }
         //Delete them all
         else {
+          //Send DELE command in a cycle for each message
           deletedCnt = 0;
           for (unsigned int i = 0; i < msgNums.size(); i++) {
             if (deleteMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]))) {
@@ -151,7 +144,7 @@ int main(int argc, char **argv)
       }
       //Download them all
       else {
-        //Send RETR command in a cycle for every message and download messages
+        //Send RETR command in a cycle for each message and download it
         storedCnt = 0;
         for (unsigned int i = 0; i < msgNums.size(); i++) {
           if (retrieveMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]), optArgs["outDir"])) {
@@ -313,13 +306,7 @@ void handleAuth(string authPath, string &user, string &pass) {
   }
   //Try match witch regular expression
   if (regex_match(content, matches, rgx)) {
-    /*cout << "Match!" << endl;
-    for (int i = 0; i < matches.size(); ++i) {
-      cout << i << " '" << matches[i].str() << "'" << endl;
-    }
-    cout << matches[2].str() << endl;
-    cout << matches[4].str() << endl;*/
-    //parse user name and password
+    //Parse user name and password
     user = matches[2].str();
     pass = matches[4].str();
   }
@@ -458,11 +445,8 @@ void parseMsgNums(int &clientSocket, int &msgCnt, string &msgContent, vector<int
   string msgLines = "", msgLine = "", msgSend = "";
   stringstream ss;
 
-  //Check if postive response
+  //Check if postive response and parse numbers
   if (regex_search(msgContent, matches, list_rgx)) {
-    /*for (unsigned int i = 0; i < matches.size(); i++) {
-      cout << i << " '" << matches[i].str() << "'" << endl;
-    }*/
     msgCnt = stoi(matches[1].str());
     cout << "msgCnt: " << msgCnt << endl;
     if (msgCnt > 0) {
@@ -504,7 +488,7 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
     errTerminate(sendProblem);
   }
   //Receive response to RETR
-  //First line
+  //First receive
   if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
     errTerminate(recvProblem);
   }
@@ -517,7 +501,7 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
   if (!(strncmp(status.c_str(), "+OK", 3) == 0)) {
     return false;
   }
-  //Next lines - whole message
+  //Next receives - whole message
   while (1) {
     if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
       errTerminate(recvProblem);
@@ -563,6 +547,7 @@ void storeIMF(string outDir, string msgNum, string msgContent) {
 bool deleteMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum) {
   string msgSend = "";
 
+  //Send DELE command with message number to the server
   msgSend = "DELE " + msgNum + "\r\n";
   cout << "C: " << msgSend;
   if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {

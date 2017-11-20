@@ -1,0 +1,33 @@
+**************************
+Klient POP3 s podporou TLS
+**************************
+
+***
+Popis
+***
+Program umožňuje sťahovanie a mazanie mailových správ pomocou protokolu POP3.
+Podporuje povinnú autentizáciu pomocou príkazov USER a PASS.
+Prihlasovacie údaje získava zo súboru špecifikovaného pomocou voľby -a <cesta_k_suboru>
+Sťahované správy sa ukladajú každá do samostatného súboru, do adresára špecifikovaného
+pomocou voľby -o <adresar>
+
+***
+Obmedzenia
+***
+Podpora šifrovaného spojenia pomocou volieb -S alebo -T nie je implementovaná, teda
+ani doplňujúce voľby -c a -C.
+Podpora sťahovania len nových správ pomocou voľby -n nie je implementovaná.
+
+***
+Príklad spustenia
+***
+./popcl pop3.seznam.cz -o ~/Documents/popcl_mails/ -a ~/Documents/auth.txt
+./popcl 2a02:598:2::46 -o /tmp -a auth.txt -d
+
+***
+Zoznam súborov
+***
+ - popcl.cpp
+ - Makefile
+ - README
+ - manual.pdf
