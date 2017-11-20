@@ -64,13 +64,14 @@ void listMsgNums(int &clientSocket, int &bytesrx, char *buffer, int &msgCnt, vec
 void parseMsgNums(int &clientSocket, int &msgCnt, string &msgContent, vector<int> &msgNums);
 void storeIMF(string outDir, string msgNum, string msgContent);
 bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, string outDir);
+bool deleteMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum);
 
 /**
  *Main
  */
 int main(int argc, char **argv)
 {
-  int clientSocket, bytesrx, msgCnt, storedCnt = 0;
+  int clientSocket, bytesrx, msgCnt, storedCnt = 0, deletedCnt = 0;
   map<string, bool> optFlags = {
     {"p", false}, {"T", false}, {"S", false}, {"c", false}, {"C", false},
     {"d", false}, {"n", false}, {"a", false}, {"o", false}
@@ -81,7 +82,7 @@ int main(int argc, char **argv)
   };
   char buffer[BUFSIZE];
   struct stat outDirStat;
-  string msg = "";
+  string msgSend = "";
   vector<int> msgNums;
 
   //Handle input arguments
@@ -118,16 +119,39 @@ int main(int argc, char **argv)
         //TODO
       }
     }
-    //Regular message downloading
-    else {
-      //Send USER and PASS cmd
-      authentize(clientSocket, bytesrx, buffer);
-      //Send LIST command
-      listMsgNums(clientSocket, bytesrx, buffer, msgCnt, msgNums);
-      //If there are some messages, get their numbers
-      if (msgCnt > 0) {
-        //Send RETR command in a cycle for every message
-        //and download messages
+    //Send USER and PASS cmd
+    authentize(clientSocket, bytesrx, buffer);
+    //Send LIST command
+    listMsgNums(clientSocket, bytesrx, buffer, msgCnt, msgNums);
+    //If there are some messages, get their numbers
+    if (msgCnt > 0) {
+      if (optFlags["d"]) {
+        if (optFlags["n"]) {
+          //TODO
+        }
+        //Delete them all
+        else {
+          deletedCnt = 0;
+          for (unsigned int i = 0; i < msgNums.size(); i++) {
+            if (deleteMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]))) {
+              deletedCnt++;
+            }
+          }
+          // Write to stdout
+          if (deletedCnt == 0 || deletedCnt >= 5) {
+            cout << "Smazáno " << deletedCnt << " zpráv." << endl;
+          }
+          else if (deletedCnt == 1) {
+            cout << "Smazána 1 zpráva." << endl;
+          }
+          else {
+            cout << "Smazány " << deletedCnt << " zprávy." << endl;
+          }
+        }
+      }
+      //Download them all
+      else {
+        //Send RETR command in a cycle for every message and download messages
         storedCnt = 0;
         for (unsigned int i = 0; i < msgNums.size(); i++) {
           if (retrieveMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]), optArgs["outDir"])) {
@@ -145,14 +169,14 @@ int main(int argc, char **argv)
           cout << "Staženy " << storedCnt << " zprávy." << endl;
         }
       }
-      //Nothing to download
-      else {
-        cout << "Staženo 0 zpráv." << endl;
-      }
-      //Send QUIT command
-      msg = "QUIT\r\n";
-      send(clientSocket, msg.c_str(), msg.size(), 0);
-    } //End regular msg dowload
+    }
+    //Nothing to do
+    else {
+      cout << "Žádné zprávy k stažení/smazání." << endl;
+    }
+    //Send QUIT command
+    msgSend = "QUIT\r\n";
+    send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
   } //End without encyption
   return 0;
 }
@@ -486,7 +510,8 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
   }
   buffer[bytesrx] = '\0';
   cout << "S: " << buffer;
-  response = string(buffer);
+  msgContent += string(buffer);
+  response = msgContent;
   ss << response;
   ss >> status;
   if (!(strncmp(status.c_str(), "+OK", 3) == 0)) {
@@ -506,6 +531,7 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
     }
     msgContent += msgPart;
   }
+
   //Store IMF message in output file
   storeIMF(outDir, msgNum, msgContent);
   return true;
@@ -528,4 +554,28 @@ void storeIMF(string outDir, string msgNum, string msgContent) {
     errTerminate(fileOpenProblem);
   }
   ofsfile << msgContent;
+}
+
+/**
+ * Function for deleting a message from the server
+ */
+bool deleteMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum) {
+  string msgSend = "";
+
+  msgSend = "DELE " + msgNum + "\r\n";
+  cout << "C: " << msgSend;
+  if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
+    close(clientSocket);
+    errTerminate(sendProblem);
+  }
+  //Receive response to DELE
+  if ((bytesrx = recv(clientSocket, buffer, BUFSIZE-1, 0)) == -1) {
+    errTerminate(recvProblem);
+  }
+  buffer[bytesrx] = '\0';
+  cout << "S: " << buffer;
+  if (strncmp(buffer, "+OK", 3) != 0) {
+    return false;
+  }
+  return true;
 }
