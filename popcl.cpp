@@ -115,9 +115,27 @@ int main(int argc, char **argv)
     authentize(clientSocket, bytesrx, buffer);
     //Send LIST command
     listMsgNums(clientSocket, bytesrx, buffer, msgCnt, msgNums);
-    //If there are some messages, get their numbers
+    //If there are some messages, download them
     if (msgCnt > 0) {
-      if (optFlags["d"]) {
+			//Send RETR command in a cycle for each message and download it
+			storedCnt = 0;
+			for (unsigned int i = 0; i < msgNums.size(); i++) {
+				if (retrieveMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]), optArgs["outDir"])) {
+					storedCnt++;
+				}
+			}
+			// Write to stdout
+			if (storedCnt == 0 || storedCnt >= 5) {
+				cout << "Staženo " << storedCnt << " zpráv." << endl;
+			}
+			else if (storedCnt == 1) {
+				cout << "Stažena 1 zpráva." << endl;
+			}
+			else {
+				cout << "Staženy " << storedCnt << " zprávy." << endl;
+			}
+			//If the messages should be deleted from the server
+			if (optFlags["d"]) {
         if (optFlags["n"]) {
           //TODO
         }
@@ -130,7 +148,7 @@ int main(int argc, char **argv)
               deletedCnt++;
             }
           }
-          // Write to stdout
+          /*// Write to stdout
           if (deletedCnt == 0 || deletedCnt >= 5) {
             cout << "Smazáno " << deletedCnt << " zpráv." << endl;
           }
@@ -139,33 +157,13 @@ int main(int argc, char **argv)
           }
           else {
             cout << "Smazány " << deletedCnt << " zprávy." << endl;
-          }
-        }
-      }
-      //Download them all
-      else {
-        //Send RETR command in a cycle for each message and download it
-        storedCnt = 0;
-        for (unsigned int i = 0; i < msgNums.size(); i++) {
-          if (retrieveMsg(clientSocket, bytesrx, buffer, to_string(msgNums[i]), optArgs["outDir"])) {
-            storedCnt++;
-          }
-        }
-        // Write to stdout
-        if (storedCnt == 0 || storedCnt >= 5) {
-          cout << "Staženo " << storedCnt << " zpráv." << endl;
-        }
-        else if (storedCnt == 1) {
-          cout << "Stažena 1 zpráva." << endl;
-        }
-        else {
-          cout << "Staženy " << storedCnt << " zprávy." << endl;
+          }*/
         }
       }
     }
     //Nothing to do
     else {
-      cout << "Žádné zprávy k stažení/smazání." << endl;
+      cout << "Žádné zprávy k stažení." << endl;
     }
     //Send QUIT command
     msgSend = "QUIT\r\n";
@@ -352,7 +350,6 @@ void establishCom(int &clientSocket, int &bytesrx, char *buffer, map<string, str
   }
   //Check for response
   buffer[bytesrx] = '\0';
-  cout << buffer << endl;
   if (!regex_match(buffer, ok_rgx)) {
     errTerminate(badAnswer);
   }
@@ -366,7 +363,6 @@ void authentize(int &clientSocket, int &bytesrx, char *buffer) {
 
   //Send USER username command
   msgSend = "USER " + user + "\r\n";
-  cout << "C: " << msgSend;
   if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
     close(clientSocket);
     errTerminate(sendProblem);
@@ -376,9 +372,7 @@ void authentize(int &clientSocket, int &bytesrx, char *buffer) {
     errTerminate(recvProblem);
   }
   buffer[bytesrx] = '\0';
-  cout << "S: " << buffer;
   if (strncmp(buffer, "+OK", 3) != 0) {
-    cout << "No match!" << endl;
     msgSend = "QUIT\r\n";
     send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
     errTerminate(badAnswer);
@@ -386,7 +380,6 @@ void authentize(int &clientSocket, int &bytesrx, char *buffer) {
 
   //Send PASS password command
   msgSend = "PASS " + pass + "\r\n";
-  cout << "C: " << msgSend;
   if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
     close(clientSocket);
     errTerminate(sendProblem);
@@ -396,9 +389,7 @@ void authentize(int &clientSocket, int &bytesrx, char *buffer) {
     errTerminate(recvProblem);
   }
   buffer[bytesrx] = '\0';
-  cout << "S: " << buffer;
   if (strncmp(buffer, "+OK", 3) != 0) {
-    cout << "No match!" << endl;
     msgSend = "QUIT\r\n";
     send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
     errTerminate(badAnswer);
@@ -413,7 +404,6 @@ void listMsgNums(int &clientSocket, int &bytesrx, char *buffer, int &msgCnt, vec
 
   //Send LIST command
   msgSend = "LIST \r\n";
-  cout << "C: " << msgSend;
   if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
     close(clientSocket);
     errTerminate(sendProblem);
@@ -431,7 +421,6 @@ void listMsgNums(int &clientSocket, int &bytesrx, char *buffer, int &msgCnt, vec
       break;
     }
   }
-  cout << "S: " << msgContent;
   //Parse answer
   parseMsgNums(clientSocket, msgCnt, msgContent, msgNums);
 }
@@ -448,26 +437,18 @@ void parseMsgNums(int &clientSocket, int &msgCnt, string &msgContent, vector<int
   //Check if postive response and parse numbers
   if (regex_search(msgContent, matches, list_rgx)) {
     msgCnt = stoi(matches[1].str());
-    cout << "msgCnt: " << msgCnt << endl;
     if (msgCnt > 0) {
       msgLines = matches[2].str();
-      cout << "msgLines: " << endl << msgLines << endl;
       ss << msgLines;
       for (int i = 0; i < msgCnt; i++) {
         ss >> msgNum;
         msgNums.push_back(msgNum);
         ss >> msgNum;
       }
-      cout << "msgNums: '";
-      for (unsigned int i = 0; i < msgNums.size(); i++) {
-        cout << msgNums[i] << " ";
-      }
-      cout << "'" << endl;
     }
   }
   //If no postive answer, QUIT communication
   else {
-    cout << "No match!" << endl;
     msgSend = "QUIT\r\n";
     send(clientSocket, msgSend.c_str(), msgSend.size(), 0);
     errTerminate(badAnswer);
@@ -482,7 +463,6 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
   stringstream ss;
 
   msgSend = "RETR " + msgNum + "\r\n";
-  cout << "C: " << msgSend;
   if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
     close(clientSocket);
     errTerminate(sendProblem);
@@ -493,7 +473,6 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
     errTerminate(recvProblem);
   }
   buffer[bytesrx] = '\0';
-  cout << "S: " << buffer;
   msgContent += string(buffer);
   response = msgContent;
   ss << response;
@@ -509,7 +488,6 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
     buffer[bytesrx] = '\0';
     msgPart = string(buffer);
     if (regex_search(msgPart, ending_rgx)) {
-      cout << "Sprava " << msgNum << " kompletne stiahnuta!" << endl;
       msgContent += msgPart.substr(0, msgPart.size()-3);
       break;
     }
@@ -521,7 +499,7 @@ bool retrieveMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum, s
   storeIMF(outDir, msgNum, msgContent);
   return true;
 }
-
+ 
 /**
  * Function for storing IMF message in output file
  */
@@ -549,7 +527,6 @@ bool deleteMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum) {
 
   //Send DELE command with message number to the server
   msgSend = "DELE " + msgNum + "\r\n";
-  cout << "C: " << msgSend;
   if ((send(clientSocket, msgSend.c_str(), msgSend.size(), 0)) == -1) {
     close(clientSocket);
     errTerminate(sendProblem);
@@ -559,7 +536,6 @@ bool deleteMsg(int &clientSocket, int &bytesrx, char *buffer, string msgNum) {
     errTerminate(recvProblem);
   }
   buffer[bytesrx] = '\0';
-  cout << "S: " << buffer;
   if (strncmp(buffer, "+OK", 3) != 0) {
     return false;
   }

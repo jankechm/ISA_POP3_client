@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS=-pedantic -Wall -Wextra -std=c++11 -g
+CFLAGS=-pedantic -Wall -Wextra -std=c++11
 FILES = popcl.cpp
 	
 all: popcl
