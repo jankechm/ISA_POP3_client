@@ -7,3 +7,9 @@ proj2.o
 popcl\.layout
 
 auth\.txt
+
+popcl_mails/
+
+popcl
+
+popcl\.depend
