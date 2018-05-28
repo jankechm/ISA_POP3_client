@@ -22,4 +22,9 @@ xjanke01/
 
 xjanke01\.tar
 
-manual\.pdf
+README_SK.txt
+*.pdf
+*.cbp
+*.bak
+*.layout
+*.depend
